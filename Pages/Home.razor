@@ -1,0 +1,115 @@
+@page "/"
+@using System.Net
+@using System.Net.Http.Json
+@using System.Text.Json
+@using BlazorWasmBrasilApiCep.Models
+@inject HttpClient Http
+
+<PageTitle>Consulta CEP - BrasilAPI</PageTitle>
+
+<h1>Consulta de CEP com Blazor WebAssembly</h1>
+
+<div class="row mb-3">
+    <div class="col-md-4">
+        <label for="cepInput" class="form-label">Digite o CEP:</label>
+        <input id="cepInput"
+               class="form-control"
+               type="text"
+               inputmode="numeric"
+               maxlength="9"
+               placeholder="Ex: 01001000"
+               autocomplete="postal-code"
+               @bind="cepDigitado"
+               @bind:event="oninput" />
+    </div>
+    <div class="col-md-2 d-flex align-items-end">
+        <button type="button"
+                class="btn btn-primary w-100"
+                @onclick="ConsultarCep"
+                disabled="@carregando">
+            @(carregando ? "Buscando..." : "Consultar")
+        </button>
+    </div>
+</div>
+
+@if (!string.IsNullOrEmpty(mensagemErro))
+{
+    <div class="alert alert-danger" role="alert">@mensagemErro</div>
+}
+
+@if (resultado is not null)
+{
+    <div class="border rounded p-3 shadow-sm resultado-cep">
+        <h5 class="text-success">Endereço Encontrado</h5>
+
+        <p><strong>CEP:</strong> @resultado.cep</p>
+        <p><strong>Logradouro:</strong> @Exibir(resultado.street)</p>
+        <p><strong>Bairro:</strong> @Exibir(resultado.neighborhood)</p>
+        <p><strong>Cidade:</strong> @resultado.city (@resultado.state)</p>
+        <p><strong>Serviço:</strong> @Exibir(resultado.service)</p>
+
+        <hr />
+
+        <h6 class="text-secondary">Dados do IBGE</h6>
+        <p><strong>Cidade IBGE:</strong> @Exibir(resultado.ibge?.city)</p>
+        <p><strong>Estado IBGE:</strong> @Exibir(resultado.ibge?.state)</p>
+    </div>
+}
+
+@code {
+    private string cepDigitado = string.Empty;
+    private string mensagemErro = string.Empty;
+    private Cep? resultado;
+    private bool carregando;
+
+    private async Task ConsultarCep()
+    {
+        resultado = null;
+        mensagemErro = string.Empty;
+
+        // Aceita CEP com ou sem hífen, mas exige exatamente oito dígitos.
+        string cep = new string(cepDigitado.Where(char.IsDigit).ToArray());
+
+        if (cep.Length != 8 || cepDigitado.Any(c => !char.IsDigit(c) && c != '-' && !char.IsWhiteSpace(c)))
+        {
+            mensagemErro = "Digite um CEP válido com 8 números.";
+            return;
+        }
+
+        carregando = true;
+
+        try
+        {
+            // Endpoint oficial de CEP v1 da BrasilAPI.
+            resultado = await Http.GetFromJsonAsync<Cep>($"api/cep/v1/{cep}");
+
+            if (resultado is null)
+            {
+                mensagemErro = "Nenhum endereço foi encontrado para este CEP.";
+            }
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            mensagemErro = "CEP não encontrado. Confira o número informado.";
+        }
+        catch (HttpRequestException)
+        {
+            mensagemErro = "Não foi possível consultar a BrasilAPI. Tente novamente.";
+        }
+        catch (TaskCanceledException)
+        {
+            mensagemErro = "A consulta demorou mais que o esperado. Tente novamente.";
+        }
+        catch (JsonException)
+        {
+            mensagemErro = "A BrasilAPI retornou dados em um formato inesperado.";
+        }
+        finally
+        {
+            carregando = false;
+        }
+    }
+
+    private static string Exibir(string? valor) =>
+        string.IsNullOrWhiteSpace(valor) ? "Não informado" : valor;
+}
